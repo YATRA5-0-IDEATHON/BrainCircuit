@@ -42,8 +42,10 @@ function PrescribeContent() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [debugError, setDebugError] = useState<string | null>(null);
 
-  // Exact Match Patient Info State
+  // Exact Match Patient Info State (Updated to track unified IDs)
   const [patientDetails, setPatientDetails] = useState<{
+    id: string;
+    profileId: string;
     fullName: string;
     dob: string;
     gender: string;
@@ -132,7 +134,7 @@ function PrescribeContent() {
           prescription_items ( drug_name, dosage, frequency, duration )
         `)
         .in("patient_id", idList)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false }); // Gathers ALL records globally matching the patient IDs
 
       if (history) {
         setPastPrescriptions(history);
@@ -160,9 +162,10 @@ function PrescribeContent() {
         let matchedName = "Unknown Patient Name";
         let alternativeIdLookup: string | null = null;
 
+        // CRITICAL FIX: Explicitly selecting 'id' alongside profile parameters
         const { data: patientByTableId } = await supabase
           .from("patients")
-          .select("dob, blood_group, gender, allergies, profile_id, profiles(full_name)")
+          .select("id, dob, blood_group, gender, allergies, profile_id, profiles(full_name)")
           .eq("id", patientId)
           .maybeSingle();
 
@@ -173,7 +176,7 @@ function PrescribeContent() {
         } else {
           const { data: patientByProfileId } = await supabase
             .from("patients")
-            .select("dob, blood_group, gender, allergies, profile_id, profiles(full_name)")
+            .select("id, dob, blood_group, gender, allergies, profile_id, profiles(full_name)")
             .eq("profile_id", patientId)
             .maybeSingle();
 
@@ -196,8 +199,12 @@ function PrescribeContent() {
           }
         }
 
-        if (matchedPatientRow || alternativeIdLookup) {
+        if (matchedPatientRow) {
+          const actualPatientId = matchedPatientRow.id;
+          
           setPatientDetails({
+            id: actualPatientId,
+            profileId: matchedPatientRow.profile_id || "",
             fullName: matchedName,
             dob: matchedPatientRow?.dob || "Not Provided",
             gender: matchedPatientRow?.gender || "Not Provided",
@@ -205,9 +212,9 @@ function PrescribeContent() {
             allergies: matchedPatientRow?.allergies || [],
           });
 
-          const idsToQuery = [patientId];
-          if (alternativeIdLookup) idsToQuery.push(alternativeIdLookup);
-          if (matchedPatientRow?.id) idsToQuery.push(matchedPatientRow.id);
+          // Form unified query matrix ensuring cross-hospital tracking variants match cleanly
+          const idsToQuery = [actualPatientId];
+          if (matchedPatientRow.profile_id) idsToQuery.push(matchedPatientRow.profile_id);
           
           await fetchPrescriptionHistory(idsToQuery);
         } else {
@@ -232,7 +239,6 @@ function PrescribeContent() {
 
     setLoading(true);
     try {
-      // 1. Provision foundational user identity entry matrix row
       const { data: profileRow, error: profileErr } = await supabase
         .from("profiles")
         .insert({ full_name: newFullName, role: "patient" })
@@ -243,7 +249,6 @@ function PrescribeContent() {
 
       const allergyArray = newAllergies ? newAllergies.split(",").map(item => item.trim()) : [];
 
-      // 2. Link account row into the patient tracking layout structure configuration
       const { data: patientRow, error: patientErr } = await supabase
         .from("patients")
         .insert({
@@ -258,14 +263,12 @@ function PrescribeContent() {
         .single();
 
       if (patientErr || !patientRow) {
-        // Simple manual cleaning rollback step
         await supabase.from("profiles").delete().eq("id", profileRow.id);
         throw new Error(patientErr?.message || "Patient container matrix verification failed.");
       }
 
       setSuccessMsg(`Patient profile registry created for ${newFullName}!`);
       
-      // Clear Form Fields
       setNewFullName("");
       setNewDob("");
       setNewGender("Other");
@@ -274,9 +277,7 @@ function PrescribeContent() {
       setNewAllergies("");
       setIsPatientFormOpen(false);
 
-      // Instantly load the brand new profile into UI by shifting the current router query view
       router.push(`?patient_id=${patientRow.id}`);
-      
       setTimeout(() => setSuccessMsg(""), 4000);
     } catch (err: any) {
       console.error(err);
@@ -288,15 +289,16 @@ function PrescribeContent() {
 
   const handlePrescribeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patientId || !drugName) return;
+    if (!patientDetails || !drugName) return;
 
     setLoading(true);
     try {
+      // FIX: Use the resolved, true internal patient UUID for checking interactions cross-doctor
       const res = await fetch("/api/check-interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          patient_id: patientId,
+          patient_id: patientDetails.id,
           new_drug_name: drugName.trim().toLowerCase(),
         }),
       });
@@ -317,6 +319,7 @@ function PrescribeContent() {
   };
 
   const savePrescription = async (overrideNote?: string) => {
+    if (!patientDetails) return;
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -338,10 +341,11 @@ function PrescribeContent() {
       
       const fullDiagnosis = overrideNote ? `${diagnosis} [Guardian override: ${overrideNote}]` : diagnosis;
 
+      // FIX: Save strictly against the unified primary patient internal reference ID
       const { data: presc, error: prescErr } = await supabase
         .from("prescriptions")
         .insert({
-          patient_id: patientId,
+          patient_id: patientDetails.id,
           doctor_id: staff.id,
           hospital_id: staff.hospital_id,
           doctor_name: currentDoctorName,
@@ -365,7 +369,7 @@ function PrescribeContent() {
 
       await supabase.from("audit_logs").insert({
         accessor_id: user.id,
-        patient_id: patientId,
+        patient_id: patientDetails.id,
         action_type: "PRESCRIPTION_CREATE",
       });
 
@@ -374,7 +378,7 @@ function PrescribeContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "prescription_created",
-          patient_id: patientId,
+          patient_id: patientDetails.id,
           drug_name: drugName.trim(),
         }),
       }).catch(() => {});
@@ -388,8 +392,9 @@ function PrescribeContent() {
       setIsFormOpen(false);
       setLoading(false);
 
-      const dynamicIds = patientId ? [patientId] : [];
-      if (dynamicIds.length > 0) await fetchPrescriptionHistory(dynamicIds);
+      const dynamicIds = [patientDetails.id];
+      if (patientDetails.profileId) dynamicIds.push(patientDetails.profileId);
+      await fetchPrescriptionHistory(dynamicIds);
       
       setTimeout(() => setSuccessMsg(""), 4000);
     } catch (err) {
@@ -488,13 +493,6 @@ function PrescribeContent() {
           >
             ← Scan Another Patient
           </button>
-          
-          {/* <button
-            onClick={() => { setIsPatientFormOpen(!isPatientFormOpen); setIsFormOpen(false); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm whitespace-nowrap ${isPatientFormOpen ? "bg-amber-100 text-amber-800 hover:bg-amber-200" : "bg-amber-600 text-white hover:bg-amber-700"}`}
-          >
-            {isPatientFormOpen ? "Hide Registry Panel" : "＋ Register New Patient"}
-          </button> */}
 
           {patientDetails && (
             <button
@@ -556,9 +554,10 @@ function PrescribeContent() {
                         <div><span className="text-gray-400 font-medium">Duration:</span> {item.duration}</div>
                       </div>
                     ))}
+                    {/* Facility Identification Footer Layer */}
                     <div className="pt-1 flex gap-4 text-[11px] text-gray-400 italic border-t border-gray-100 mt-2">
                       <div><span className="font-medium">Physician:</span> {presc.doctor_name || "Not Logged"}</div>
-                      <div><span className="font-medium">Facility:</span> {presc.hospital_name || "Not Logged"}</div>
+                      <div><span className="font-medium text-blue-600">Facility:</span> <strong className="text-gray-700 not-italic">{presc.hospital_name || "Not Logged"}</strong></div>
                     </div>
                   </div>
                 );
@@ -566,8 +565,6 @@ function PrescribeContent() {
             </div>
           )}
         </div>
-
-       
 
         {/* Form Container 2: New Medication Append Form */}
         {isFormOpen && patientDetails && (
