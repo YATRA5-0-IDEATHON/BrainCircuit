@@ -118,7 +118,7 @@ export default function SignUpPage() {
       <div className="w-full max-w-xl rounded-2xl bg-white p-8 shadow-sm border border-gray-100">
         <div className="text-center mb-6">
           <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-            Health Wallet Network
+            Health Sanjal
           </span>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">
             Create New Account
@@ -202,10 +202,10 @@ export default function SignUpPage() {
               value={role}
               onChange={(e) => setRole(e.target.value as any)}
             >
-              <option value="patient">Patient (Health Wallet Owner)</option>
+              <option value="patient">Patient (Health Sanjal User)</option>
               <option value="doctor">Doctor / Medical Practitioner</option>
               <option value="hospital_admin">Hospital Administrator</option>
-              <option value="system_admin">System Administrator</option>
+              {/* <option value="system_admin">System Administrator</option> */}
             </select>
           </div>
 
@@ -368,7 +368,7 @@ export default function SignUpPage() {
             disabled={loading}
             className="w-full rounded-lg bg-blue-600 py-3 text-sm font-medium text-white hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
           >
-            {loading ? "Creating Account & Wallet..." : "Sign Up"}
+            {loading ? "Creating Account..." : "Sign Up"}
           </button>
         </form>
 

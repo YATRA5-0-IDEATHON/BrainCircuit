@@ -59,7 +59,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-sm border border-gray-100">
         <div className="text-center mb-6">
           <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-            Health Wallet + Guardian
+            Health Sanjal
           </span>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">
             Sign In to Portal

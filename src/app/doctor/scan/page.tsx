@@ -65,7 +65,7 @@ export default function DoctorScanPage() {
             Doctor Portal
           </span>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">
-            Scan Patient Health Wallet
+            Scan Patient QR Code
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Scan the patient's QR code, or enter their secure token manually
